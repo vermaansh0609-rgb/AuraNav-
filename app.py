@@ -27,14 +27,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# The frontend application:
-# Built with pure Vanilla HTML5 / WebGL / Canvas (Zero proprietary APIs)
-# Implements:
-# 1. Custom Slippy-Map Tile Engine (CartoDB Dark Matter / OSM worldwide tiles)
-# 2. Dynamic Real-World Graph Construction from live Vector Overpass data
-# 3. Spatial Quadtree partition engine
-# 4. Prefix Trie with Merge-Sort ranking for autocomplete
-# 5. A* Heuristic Pathfinding with Binary Min-Heap
 html_engine = """
 <!DOCTYPE html>
 <html lang="en">
@@ -45,7 +37,7 @@ html_engine = """
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    background: #060913;
+    background: #0b0f19;
     color: #e2e8f0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     overflow: hidden;
@@ -57,16 +49,18 @@ html_engine = """
     height: 100vh;
     display: block;
     cursor: grab;
+    /* Hardware-accelerated dark inversion: converts standard OSM tiles into a sleek modern dark map */
+    filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
   }
   #map-canvas:active { cursor: grabbing; }
 
-  /* Futuristic Glassmorphism HUD */
+  /* Glassmorphism HUD Panels */
   .hud {
     position: absolute;
     background: rgba(11, 17, 32, 0.88);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 12px;
     box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
     z-index: 10;
@@ -249,7 +243,6 @@ html_engine = """
 <script>
 /**
  * 1. SLIPPY-MAP PROJECTION MATH (WGS84 <-> Mercator Pixels)
- * Built purely from scratch without Google Maps, Leaflet, or Mapbox libraries.
  */
 const TILE_SIZE = 256;
 
@@ -268,7 +261,6 @@ function tile2lat(y, zoom) {
   return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
 }
 
-// Initial Camera: Centered on Park Street, Kolkata (lat: 22.5511, lon: 88.3526)
 let state = {
   lat: 22.5511,
   lon: 88.3526,
@@ -338,7 +330,7 @@ class MinHeap {
  */
 class Quadtree {
   constructor(box, capacity = 8) {
-    this.box = box; // { minX, minY, maxX, maxY }
+    this.box = box;
     this.capacity = capacity;
     this.points = [];
     this.divided = false;
@@ -425,7 +417,7 @@ function mergeSort(arr, keyFn) {
 }
 
 /**
- * 5. WORLD GRAPH & TILE CACHING ENGINE
+ * 5. WATERMARK-FREE REAL WORLD TILE ENGINE (NO API KEY REQUIRED)
  */
 const tileCache = new Map();
 let graphNodes = [];
@@ -435,10 +427,10 @@ let adj = new Map();
 let quadtree = new Quadtree({ minX: -180, minY: -85, maxX: 180, maxY: 85 });
 let poiTrie = new POITrie();
 
-// Tile Provider: CartoDB Dark Matter (High-definition vector raster tiles, free worldwide)
+// Standard OpenStreetMap public tile servers (100% Free worldwide, no watermarks, no API keys)
 function getTileUrl(x, y, z) {
-  const sub = ['a', 'b', 'c', 'd'][Math.abs(x + y) % 4];
-  return `https://${sub}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`;
+  const sub = ['a', 'b', 'c'][Math.abs(x + y) % 3];
+  return `https://${sub}.tile.openstreetmap.org/${z}/${x}/${y}.png`;
 }
 
 function loadTile(x, y, z) {
@@ -453,13 +445,12 @@ function loadTile(x, y, z) {
 }
 
 /**
- * 6. DYNAMIC OVERPASS VECTOR NETWORK INGESTION
+ * 6. REAL-WORLD VECTOR NETWORK INGESTION (OVERPASS)
  */
 async function fetchVectorsForCurrentView() {
   const loader = document.getElementById('loader');
   loader.style.display = 'block';
 
-  // Compute Lat/Lon Bounding Box for current zoom
   const span = 0.025 * (16 / state.zoom);
   const s = state.lat - span;
   const n = state.lat + span;
@@ -483,11 +474,11 @@ async function fetchVectorsForCurrentView() {
       headers: { "Content-Type": "application/x-www-form-urlencoded" }
     });
 
-    if (!res.ok) throw new Error("Overpass rate limited");
+    if (!res.ok) throw new Error("Overpass unavailable");
     const data = await res.json();
     processOverpassData(data);
   } catch (err) {
-    console.warn("Real-world vector fetch fallback to cached/procedural:", err);
+    console.warn("Real-world vector fetch fallback to local coordinate grid:", err);
     buildLocalGridFallback();
   } finally {
     loader.style.display = 'none';
@@ -553,7 +544,6 @@ function processOverpassData(osm) {
 }
 
 function buildLocalGridFallback() {
-  // If Overpass is offline, generate real coordinate-aligned local grid around user's exact lat/lon
   graphNodes = [];
   graphEdges = [];
   nodeMap.clear();
@@ -580,14 +570,8 @@ function buildLocalGridFallback() {
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
       const u = r * size + c;
-      if (c + 1 < size) {
-        const v = r * size + (c + 1);
-        connect(u, v);
-      }
-      if (r + 1 < size) {
-        const v = (r + 1) * size + c;
-        connect(u, v);
-      }
+      if (c + 1 < size) connect(u, r * size + (c + 1));
+      if (r + 1 < size) connect(u, (r + 1) * size + c);
     }
   }
 
@@ -646,7 +630,6 @@ function runAStar(srcId, dstId) {
       path.unshift(nodeMap.get(srcId));
 
       document.getElementById('stat-explored').textContent = exploredSet.size;
-      // Convert degree distance to approximate driving km
       const km = (g.get(dstId) * 111).toFixed(2);
       document.getElementById('stat-cost').textContent = `${km} km`;
       return path;
@@ -703,10 +686,10 @@ function screenToCoord(sx, sy) {
 }
 
 function render() {
-  ctx.fillStyle = "#060913";
+  ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // 1. Draw Slippy Base Map Tiles (Buildings, streets, water bodies)
+  // 1. Draw Clean Slippy Base Map Tiles (Without any watermarks)
   const z = Math.floor(state.zoom);
   const centerTileX = lon2tile(state.lon, z);
   const centerTileY = lat2tile(state.lat, z);
@@ -749,8 +732,8 @@ function render() {
   document.getElementById('stat-culled').textContent = `${graphNodes.length - visibleNodes.length} nodes`;
 
   // 3. Draw Road Vectors
-  ctx.strokeStyle = "rgba(56, 189, 248, 0.25)";
-  ctx.lineWidth = Math.max(1.8, (state.zoom - 12) * 1.2);
+  ctx.strokeStyle = "rgba(14, 165, 233, 0.45)";
+  ctx.lineWidth = Math.max(2.0, (state.zoom - 12) * 1.5);
   ctx.beginPath();
   for (let e of graphEdges) {
     if (visibleSet.has(e.u) || visibleSet.has(e.v)) {
@@ -764,13 +747,13 @@ function render() {
 
   // 4. Draw A* Search Explored Wavefront
   if (exploredSet.size > 0 && activeRoute) {
-    ctx.fillStyle = "rgba(56, 189, 248, 0.28)";
+    ctx.fillStyle = "rgba(56, 189, 248, 0.35)";
     for (let nid of exploredSet) {
       if (visibleSet.has(nid)) {
         const n = nodeMap.get(nid);
         const pt = coordToScreen(n.lat, n.lon);
         ctx.beginPath();
-        ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+        ctx.arc(pt.x, pt.y, 4.5, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -778,12 +761,12 @@ function render() {
 
   // 5. Draw Optimal Driving Route
   if (activeRoute) {
-    ctx.strokeStyle = "#38bdf8";
+    ctx.strokeStyle = "#0284c7";
     ctx.lineWidth = 6;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.shadowColor = "#38bdf8";
-    ctx.shadowBlur = 12;
+    ctx.shadowColor = "#0284c7";
+    ctx.shadowBlur = 14;
     ctx.beginPath();
     for (let i = 0; i < activeRoute.length; i++) {
       const pt = coordToScreen(activeRoute[i].lat, activeRoute[i].lon);
@@ -799,19 +782,19 @@ function render() {
     const pt = coordToScreen(n.lat, n.lon);
 
     if (startNode && startNode.id === n.id) {
-      ctx.fillStyle = "#34d399";
+      ctx.fillStyle = "#10b981";
       ctx.beginPath(); ctx.arc(pt.x, pt.y, 8, 0, Math.PI * 2); ctx.fill();
       ctx.font = "bold 11px system-ui";
       ctx.fillText("START", pt.x + 12, pt.y + 4);
     } else if (goalNode && goalNode.id === n.id) {
-      ctx.fillStyle = "#f87171";
+      ctx.fillStyle = "#ef4444";
       ctx.beginPath(); ctx.arc(pt.x, pt.y, 8, 0, Math.PI * 2); ctx.fill();
       ctx.font = "bold 11px system-ui";
       ctx.fillText("DEST", pt.x + 12, pt.y + 4);
     } else if (n.name && state.zoom > 15) {
-      ctx.fillStyle = "#fbbf24";
+      ctx.fillStyle = "#f59e0b";
       ctx.beginPath(); ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#cbd5e1";
+      ctx.fillStyle = "#1e293b";
       ctx.font = "11px system-ui";
       ctx.fillText(n.name, pt.x + 6, pt.y + 3);
     }
@@ -858,14 +841,12 @@ window.addEventListener('mousemove', e => {
 
 window.addEventListener('mouseup', () => isDrag = false);
 
-// Continuous Scale Zoom
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
   const zoomFactor = e.deltaY < 0 ? 0.25 : -0.25;
   state.zoom = Math.max(3, Math.min(19, state.zoom + zoomFactor));
 });
 
-// Click on any real street intersection to set Start and Destination
 canvas.addEventListener('click', e => {
   if (dragMoved) return;
 
@@ -873,7 +854,6 @@ canvas.addEventListener('click', e => {
   let nearest = null;
   let minDist = Infinity;
 
-  // Find nearest vertex
   for (let n of graphNodes) {
     const d = Math.hypot(n.lon - clickCoord.lon, n.lat - clickCoord.lat);
     if (d < minDist) {
@@ -896,7 +876,7 @@ canvas.addEventListener('click', e => {
 });
 
 /**
- * 10. GLOBAL REAL-TIME LOCATION SEARCH (NOMINATIM GEOCODING)
+ * 10. GLOBAL SEARCH
  */
 const searchInput = document.getElementById('global-search');
 const suggestions = document.getElementById('suggestions');
@@ -936,7 +916,7 @@ searchInput.addEventListener('input', e => {
   }, 350);
 });
 
-// Bottom bar buttons
+// Controls
 document.getElementById('btn-sync').onclick = () => fetchVectorsForCurrentView();
 document.getElementById('btn-clear').onclick = () => {
   startNode = null;
