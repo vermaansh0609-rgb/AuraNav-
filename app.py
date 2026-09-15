@@ -1,7 +1,7 @@
 import json
 import math
-import requests
 import random
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -25,9 +25,6 @@ st.markdown("""
         padding-top: 1rem !important;
         padding-bottom: 0rem !important;
     }
-    .css-1d391kg, .stSidebar {
-        background-color: #0b1120 !important;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -44,106 +41,111 @@ def lat_lon_to_mercator(lat: float, lon: float):
     return x, y
 
 def geocode_location(query: str):
-    """Fetches real-world (lat, lon) coordinates for any location using OpenStreetMap Nominatim."""
-    headers = {"User-Agent": "AuraNav-DSA-Navigation-Engine/1.0"}
+    """Fetches real-world (lat, lon) coordinates for any location worldwide using Nominatim."""
+    headers = {"User-Agent": "AuraNav-Vector-Engine/2.0 (student-project)"}
     url = "https://nominatim.openstreetmap.org/search"
     params = {"q": query, "format": "json", "limit": 1}
     try:
-        res = requests.get(url, params=params, headers=headers, timeout=8)
-        if res.status_code == 200 and len(res.json()) > 0:
-            item = res.json()[0]
-            return float(item["lat"]), float(item["lon"]), item.get("display_name", query)
+        res = requests.get(url, params=params, headers=headers, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            if len(data) > 0:
+                item = data[0]
+                return float(item["lat"]), float(item["lon"]), item.get("display_name", query)
     except Exception as e:
-        st.warning(f"Geocoding request failed: {e}")
+        st.sidebar.error(f"Geocoding error: {e}")
     return None, None, None
 
-def fetch_real_world_vectors(lat: float, lon: float, radius_deg: float = 0.009):
-    """
-    Queries OpenStreetMap Overpass vector API for actual road vectors around the requested coordinates.
-    """
+def fetch_real_world_vectors(lat: float, lon: float, radius_km: float = 1.0):
+    """Queries OpenStreetMap Overpass vector API for road vectors around coordinates."""
+    radius_deg = (radius_km / 111.0) * 0.95
     south = lat - radius_deg
     north = lat + radius_deg
-    west = lon - radius_deg * 1.3
-    east = lon + radius_deg * 1.3
+    west = lon - (radius_deg * 1.3)
+    east = lon + (radius_deg * 1.3)
 
     overpass_query = f"""
-    [out:json][timeout:15];
+    [out:json][timeout:20];
     (
-      way["highway"~"primary|secondary|tertiary|residential|trunk|motorway"]({south},{west},{north},{east});
+      way["highway"~"primary|secondary|tertiary|residential|trunk|motorway|unclassified"]({south},{west},{north},{east});
     );
     out body;
     >;
     out skel qt;
     """
     
-    headers = {"User-Agent": "AuraNav-DSA-Navigation-Engine/1.0"}
+    headers = {"User-Agent": "AuraNav-Vector-Engine/2.0"}
     endpoints = [
         "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
         "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
     ]
     
     for ep in endpoints:
         try:
-            res = requests.post(ep, data={"data": overpass_query}, headers=headers, timeout=12)
+            res = requests.post(ep, data={"data": overpass_query}, headers=headers, timeout=15)
             if res.status_code == 200:
-                return res.json(), (south, west, north, east)
+                data = res.json()
+                if "elements" in data and len(data["elements"]) > 0:
+                    return data
         except Exception:
             continue
-    return None, (south, west, north, east)
+    return None
 
 # ==========================================
-# 2. SIDEBAR CONTROLS: ANY LOCATION ON EARTH
+# 2. SIDEBAR CONTROLS (GLOBAL SEARCH)
 # ==========================================
 
-st.sidebar.markdown("### 🧭 AuraNav Engine")
-st.sidebar.markdown("Search **any real-world neighborhood, city, or landmark** on Earth:")
+st.sidebar.markdown("### 🧭 AuraNav Global Search")
 
-preset_cities = {
-    "Custom Search...": "",
-    "Connaught Place, New Delhi": "Connaught Place, New Delhi, India",
-    "Colaba, Mumbai": "Colaba, Mumbai, India",
-    "Shinjuku, Tokyo": "Shinjuku, Tokyo, Japan",
-    "Eiffel Tower, Paris": "Eiffel Tower, Paris, France",
-    "Times Square, New York": "Times Square, New York, USA",
-    "Oxford Circus, London": "Oxford Circus, London, UK",
-    "Dubai Marina": "Dubai Marina, Dubai, UAE"
-}
+# Maintain current place in session state
+if "active_place" not in st.session_state:
+    st.session_state.active_place = "Park Street, Kolkata"
 
-selected_preset = st.sidebar.selectbox("Quick Preset Locations:", list(preset_cities.keys()))
+# Custom input takes absolute priority
+typed_input = st.sidebar.text_input(
+    "Search any city, neighborhood, or landmark:",
+    value=st.session_state.active_place,
+    help="Examples: Park Street Kolkata, Shibuya Tokyo, Connaught Place Delhi, Times Square NYC"
+)
 
-if selected_preset != "Custom Search...":
-    default_query = preset_cities[selected_preset]
-else:
-    default_query = "Marine Drive, Mumbai"
-
-search_query = st.sidebar.text_input("Enter Address or Landmark:", value=default_query)
-radius_select = st.sidebar.slider("Vector Radius Area (km):", min_value=0.5, max_value=2.0, value=1.0, step=0.25)
+radius_select = st.sidebar.slider("Vector Radius (km):", min_value=0.5, max_value=2.5, value=1.0, step=0.25)
 load_btn = st.sidebar.button("🚀 Fetch & Build Vector Graph", type="primary")
 
-# Persist location in session state
-if "current_place" not in st.session_state:
-    st.session_state.current_place = "Connaught Place, New Delhi, India"
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Quick Preset Shortcuts:**")
+preset_cols = st.sidebar.columns(2)
+if preset_cols[0].button("Kolkata"):
+    st.session_state.active_place = "Park Street, Kolkata"
+    st.rerun()
+if preset_cols[1].button("Delhi"):
+    st.session_state.active_place = "Connaught Place, New Delhi"
+    st.rerun()
+if preset_cols[0].button("Mumbai"):
+    st.session_state.active_place = "Marine Drive, Mumbai"
+    st.rerun()
+if preset_cols[1].button("Tokyo"):
+    st.session_state.active_place = "Shibuya, Tokyo"
+    st.rerun()
 
-if load_btn and search_query:
-    st.session_state.current_place = search_query
+if load_btn and typed_input:
+    st.session_state.active_place = typed_input
 
 # ==========================================
 # 3. BUILD VECTOR GRAPH & PROJECT DATA
 # ==========================================
 
-with st.spinner(f"Geocoding and building real-world vector topology for '{st.session_state.current_place}'..."):
-    center_lat, center_lon, display_label = geocode_location(st.session_state.current_place)
+with st.spinner(f"Fetching vectors for '{st.session_state.active_place}'..."):
+    center_lat, center_lon, display_label = geocode_location(st.session_state.active_place)
     
-    # Fallback default if geocoder is busy
     if center_lat is None:
-        center_lat, center_lon = 28.6315, 77.2167 # Connaught Place, New Delhi
-        display_label = "Connaught Place, New Delhi, India (Default)"
-        st.sidebar.warning("Search timed out, defaulted to Connaught Place.")
+        st.sidebar.error(f"Could not find coordinates for '{st.session_state.active_place}'. Try a more specific name like 'Park Street, Kolkata'.")
+        center_lat, center_lon = 22.5511, 88.3526  # Default fallback: Park Street, Kolkata
+        display_label = "Park Street, Kolkata, West Bengal, India"
     else:
-        st.sidebar.success(f"Loaded: {display_label[:40]}...")
+        st.sidebar.success(f"📍 Loaded: {display_label[:40]}...")
 
-    deg_radius = (radius_select / 111.0) * 0.9
-    osm_data, bounds = fetch_real_world_vectors(center_lat, center_lon, radius_deg=deg_radius)
+    osm_data = fetch_real_world_vectors(center_lat, center_lon, radius_km=radius_select)
 
 nodes = []
 edges = []
@@ -156,10 +158,9 @@ if osm_data and "elements" in osm_data:
         if el["type"] == "node":
             raw_nodes[el["id"]] = (el["lat"], el["lon"])
 
-    # Calculate center in Mercator meters
     cx, cy = lat_lon_to_mercator(center_lat, center_lon)
     internal_id = 0
-    scale = 0.8  # Canvas coordinate scaling factor
+    scale = 0.85
 
     for el in osm_data["elements"]:
         if el["type"] == "way" and "nodes" in el:
@@ -172,9 +173,8 @@ if osm_data and "elements" in osm_data:
                     if nid not in node_id_map:
                         lat, lon = raw_nodes[nid]
                         mx, my = lat_lon_to_mercator(lat, lon)
-                        # Center coordinates around (0, 0)
                         px = round((mx - cx) * scale, 1)
-                        py = round(-(my - cy) * scale, 1) # Flip Y for standard screen coordinates
+                        py = round(-(my - cy) * scale, 1)
 
                         n_obj = {
                             "id": internal_id,
@@ -185,7 +185,7 @@ if osm_data and "elements" in osm_data:
                         nodes.append(n_obj)
                         node_id_map[nid] = internal_id
                         
-                        if n_obj["name"] and len(pois) < 30:
+                        if n_obj["name"] and len(pois) < 40:
                             pois.append({"id": internal_id, "name": n_obj["name"], "x": px, "y": py})
                         
                         curr_idx = internal_id
@@ -201,8 +201,9 @@ if osm_data and "elements" in osm_data:
 
                     prev_idx = curr_idx
 
-# Fallback procedural grid if OSM API fails to respond in time
+# Fallback graph in case Overpass is throttled
 if len(nodes) < 15:
+    st.sidebar.warning("Vector API traffic heavy, generating fallback mesh for current coordinates.")
     nodes = []
     edges = []
     pois = []
@@ -230,14 +231,14 @@ if len(nodes) < 15:
 st.sidebar.markdown("---")
 st.sidebar.markdown(f"**Vertices (Intersections):** `{len(nodes)}`")
 st.sidebar.markdown(f"**Edges (Road Segments):** `{len(edges)}`")
-st.sidebar.markdown(f"**Indexed POIs (Streets):** `{len(pois)}`")
+st.sidebar.markdown(f"**Indexed Streets:** `{len(pois)}`")
 
 # ==========================================
-# 4. EMBEDDED HIGH-SPEED INTERACTIVE CANVAS
+# 4. HIGH-PERFORMANCE INTERACTIVE CANVAS
 # ==========================================
 
 payload = json.dumps({
-    "locationName": display_label if 'display_label' in locals() else "Custom Location",
+    "locationName": display_label if 'display_label' in locals() else st.session_state.active_place,
     "nodes": nodes,
     "edges": edges,
     "pois": pois
@@ -643,7 +644,7 @@ function runAStar(srcId, dstId) {{
   return null;
 }}
 
-// Continuous Render Loop with Viewport Culling
+// Continuous Render Loop
 function render() {{
   ctx.fillStyle = "#060913";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
