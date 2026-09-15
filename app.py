@@ -37,10 +37,11 @@ html_app = """
 <style>
   :root {
     --bg-dark: #070a13;
-    --panel-bg: rgba(11, 17, 32, 0.88);
-    --border-color: rgba(255, 255, 255, 0.12);
+    --panel-bg: rgba(11, 17, 32, 0.90);
+    --border-color: rgba(255, 255, 255, 0.14);
     --accent: #38bdf8;
-    --accent-glow: rgba(56, 189, 248, 0.35);
+    --accent-glow: rgba(56, 189, 248, 0.45);
+    --accent-secondary: #06b6d4;
     --text-primary: #f8fafc;
     --text-secondary: #94a3b8;
     --success: #10b981;
@@ -82,13 +83,13 @@ html_app = """
   .search-hud {
     top: 20px;
     left: 20px;
-    width: 380px;
+    width: 390px;
   }
   .search-input-wrapper {
     display: flex;
     align-items: center;
-    padding: 12px 16px;
-    gap: 12px;
+    padding: 10px 14px;
+    gap: 10px;
   }
   .status-pulse {
     width: 10px;
@@ -108,11 +109,30 @@ html_app = """
     outline: none;
     color: #fff;
     font-size: 13.5px;
-    width: 100%;
+    flex: 1;
+  }
+  .icon-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .icon-btn:hover {
+    background: var(--accent);
+    color: #030712;
+    box-shadow: 0 0 12px var(--accent-glow);
   }
   #suggestions-list {
     list-style: none;
-    max-height: 240px;
+    max-height: 220px;
     overflow-y: auto;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
@@ -163,13 +183,13 @@ html_app = """
 
   /* Turn-by-Turn Navigation HUD */
   .nav-hud {
-    top: 160px;
+    top: 170px;
     left: 20px;
-    width: 380px;
+    width: 390px;
     display: none;
   }
   .nav-header {
-    padding: 14px 16px;
+    padding: 12px 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -191,9 +211,9 @@ html_app = """
     text-transform: uppercase;
   }
   .nav-steps-container {
-    max-height: 200px;
+    max-height: 180px;
     overflow-y: auto;
-    padding: 8px 0;
+    padding: 6px 0;
   }
   .nav-step-item {
     padding: 8px 16px;
@@ -207,6 +227,48 @@ html_app = """
     color: var(--accent);
     font-weight: bold;
     font-size: 13px;
+  }
+
+  /* Simulation Progress Overlay HUD (Top Center) */
+  .sim-hud {
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 18px;
+    display: none;
+    align-items: center;
+    gap: 16px;
+    border: 1px solid var(--accent);
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
+  }
+  .sim-stat-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .sim-val {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    font-family: ui-monospace, monospace;
+  }
+  .sim-lbl {
+    font-size: 9.5px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+  }
+  .sim-progress-track {
+    width: 120px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .sim-progress-bar {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #06b6d4, #38bdf8);
+    transition: width 0.1s linear;
   }
 
   /* Telemetry Dashboard (Top Right) */
@@ -289,9 +351,10 @@ html_app = """
     box-shadow: 0 0 14px var(--accent-glow);
   }
   button.action-btn.active {
-    background: rgba(56, 189, 248, 0.22);
+    background: rgba(56, 189, 248, 0.25);
     border-color: var(--accent);
     color: var(--accent);
+    font-weight: 600;
   }
 
   /* Building Details Popup HUD */
@@ -299,9 +362,27 @@ html_app = """
     position: absolute;
     bottom: 80px;
     right: 20px;
-    width: 260px;
+    width: 270px;
     padding: 14px;
     display: none;
+  }
+
+  /* GPS Geolocation Banner / Notice */
+  .gps-toast {
+    position: absolute;
+    top: 76px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 16px;
+    background: rgba(16, 185, 129, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    display: none;
+    z-index: 50;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   }
 
   #loading-strip {
@@ -318,11 +399,14 @@ html_app = """
 
 <canvas id="map-canvas"></canvas>
 
+<div class="gps-toast" id="gps-toast">📍 GPS Location Acquired!</div>
+
 <!-- Search & Prefix Trie Autocomplete HUD -->
 <div class="hud search-hud">
   <div class="search-input-wrapper">
     <div class="status-pulse"></div>
-    <input type="text" id="global-search" placeholder="Search ANY city, street, or landmark worldwide..." autocomplete="off" />
+    <input type="text" id="global-search" placeholder="Search ANY place worldwide or tap My Location..." autocomplete="off" />
+    <button class="icon-btn" id="btn-my-loc" title="Locate my real-world GPS position">📍 My Location</button>
   </div>
   <div class="mode-selector">
     <button class="mode-btn active" data-mode="driving">🚗 Drive</button>
@@ -354,12 +438,29 @@ html_app = """
   <div class="nav-steps-container" id="nav-steps"></div>
 </div>
 
+<!-- Simulation HUD (Top Center) -->
+<div class="hud sim-hud" id="sim-hud">
+  <div class="sim-stat-box">
+    <div class="sim-val" id="sim-speed-val">42 km/h</div>
+    <div class="sim-lbl">Live Speed</div>
+  </div>
+  <div class="sim-stat-box">
+    <div class="sim-val" id="sim-progress-val">0%</div>
+    <div class="sim-lbl">Route Progress</div>
+  </div>
+  <div class="sim-progress-track">
+    <div class="sim-progress-bar" id="sim-progress-bar"></div>
+  </div>
+  <button class="action-btn" id="btn-sim-reset" style="padding: 4px 8px; font-size: 11px;">⏹ Stop</button>
+</div>
+
 <!-- Top-Right DSA Diagnostic Telemetry -->
 <div class="hud telemetry-hud">
   <div class="telemetry-title">
     <span>AuraNav Engine Diagnostics</span>
-    <span style="color:var(--success)">REAL-VECTOR</span>
+    <span style="color:var(--success)">ONLINE</span>
   </div>
+  <div class="telemetry-row"><span>GPS Accuracy</span><span id="stat-gps">Calibrated</span></div>
   <div class="telemetry-row"><span>Gateway Status</span><span id="stat-gateway">Multi-Mirror Ready</span></div>
   <div class="telemetry-row"><span>Quadtree Culled</span><span id="stat-quad-culled">0 nodes</span></div>
   <div class="telemetry-row"><span>3D Extruded Buildings</span><span id="stat-bldgs">0 items</span></div>
@@ -391,6 +492,7 @@ html_app = """
 
 <!-- Bottom Controls Toolbar -->
 <div class="hud toolbar-hud">
+  <button class="action-btn" id="btn-my-loc-dock">📍 My Location</button>
   <button class="action-btn" id="btn-tilt">📐 3D Tilt: Off</button>
   <button class="action-btn" id="btn-buildings">🏢 Buildings: On</button>
   <button class="action-btn" id="btn-simulate">▶ Start Sim</button>
@@ -400,7 +502,6 @@ html_app = """
 
 <script>
 /**
- * STREAMING_CHUNK:Implementing Projection Mathematics and Camera System...
  * 1. MATHEMATICAL PROJECTION ENGINE (Web Mercator WGS84 <-> Canvas Pixels)
  */
 const TILE_SIZE = 256;
@@ -431,10 +532,13 @@ let state = {
   showBuildings: true
 };
 
+// User's Real-world GPS Position
+let userGeoLocation = null;
+let userAccuracyRadius = 0;
+
 /**
  * STREAMING_CHUNK:Implementing Binary Min-Heap Priority Queue...
  * 2. CORE DSA: BINARY MIN-HEAP FOR A* HEURISTIC EVALUATION
- * Guarantees O(log N) push and pop operations for lowest-cost waypoint exploration.
  */
 class MinHeap {
   constructor(scoreFn) {
@@ -494,7 +598,6 @@ class MinHeap {
 /**
  * STREAMING_CHUNK:Implementing 2D Spatial Quadtree Partitioning Engine...
  * 3. CORE DSA: 2D SPATIAL QUADTREE FOR VIEWPORT CULLING & INSPECTION
- * Partitions 2D planar space recursively. Queries off-screen geometry in O(log N).
  */
 class Quadtree {
   constructor(box, capacity = 8) {
@@ -595,7 +698,7 @@ function mergeSort(arr, scoreFn) {
 }
 
 /**
- * STREAMING_CHUNK:Configuring Slippy-Map Tile Cache Engine...
+ * STREAMING_CHUNK:Configuring Watermark-Free Slippy-Map Tile Cache Engine...
  * 5. WATERMARK-FREE CLEAN DARK BASEMAP TILE ENGINE
  */
 const tileCache = new Map();
@@ -752,7 +855,7 @@ function parseOsmGeometry(osm) {
 function generateLocalBuildingFallback() {
   buildingsData = [];
   localQuadtree = new Quadtree({ minX: -180, minY: -85, maxX: 180, maxY: 85 });
-  const count = 35;
+  const count = 40;
   const d = 0.0035;
 
   for (let i = 0; i < count; i++) {
@@ -796,7 +899,6 @@ async function computeRealWorldRoute() {
   const loader = document.getElementById('loading-strip');
   loader.style.display = 'block';
 
-  // Map mode speeds (Driving = car, Cycling = bike, Walking = foot)
   const modeProfile = state.travelMode === 'driving' ? 'driving' : (state.travelMode === 'cycling' ? 'bicycle' : 'walking');
   const url = `https://router.project-osrm.org/route/v1/${modeProfile}/${startCoord.lon},${startCoord.lat};${destCoord.lon},${destCoord.lat}?overview=full&geometries=geojson&steps=true`;
 
@@ -826,6 +928,13 @@ async function computeRealWorldRoute() {
 
       document.getElementById('stat-explored').textContent = coords.length;
       document.getElementById('stat-route-dist').textContent = (route.distance / 1000).toFixed(2) + ' km';
+
+      // Reset Simulation variables for the new route
+      simProgress = 0;
+      simActive = false;
+      document.getElementById('btn-simulate').textContent = '▶ Start Sim';
+      document.getElementById('btn-simulate').classList.remove('active');
+      document.getElementById('sim-hud').style.display = 'none';
     }
   } catch (err) {
     console.error("Routing error:", err);
@@ -848,7 +957,7 @@ function updateTurnByTurnHUD(route) {
 
   const leg = route.legs && route.legs[0] ? route.legs[0] : null;
   if (leg && leg.steps) {
-    leg.steps.forEach((step, idx) => {
+    leg.steps.forEach((step) => {
       const div = document.createElement('div');
       div.className = 'nav-step-item';
       let icon = '↱';
@@ -929,39 +1038,106 @@ function drawElevationCanvas() {
 }
 
 /**
- * STREAMING_CHUNK:Configuring Live GPS Navigation Simulation Engine...
- * 8. LIVE GPS NAVIGATION VEHICLE SIMULATOR (LERP INTERPOLATION)
+ * STREAMING_CHUNK:Configuring Live GPS Navigation and Simulation Engine...
+ * 8. LIVE GPS VEHICLE SIMULATOR (HIGH PRECISION LERP INTERPOLATION & CAMERA FOLLOW)
  */
 let simActive = false;
-let simProgress = 0;
-let simSpeed = 0.0018;
+let simProgress = 0.0;
+let simSpeed = 0.0018; // Normalized step speed
+let simVehiclePos = null;
 
 function updateSimulation() {
   if (!simActive || !activeRoute || activeRoute.length < 2) return;
+
   simProgress += simSpeed;
   if (simProgress >= 1.0) {
-    simProgress = 0; // Loop simulation
+    simProgress = 0; // Loop or reach destination
   }
 
   const totalSegments = activeRoute.length - 1;
-  const currIndex = Math.min(totalSegments - 1, Math.floor(simProgress * totalSegments));
-  const t = (simProgress * totalSegments) - currIndex;
+  const exactIndex = simProgress * totalSegments;
+  const currIndex = Math.min(totalSegments - 1, Math.floor(exactIndex));
+  const t = exactIndex - currIndex;
 
   const p1 = activeRoute[currIndex];
-  const p2 = activeRoute[currIndex + 1];
+  const p2 = activeRoute[currIndex + 1] || activeRoute[currIndex];
 
-  // LERP Coordinates
+  // Accurate Coordinate Linear Interpolation (LERP)
   const curLon = p1.lon + (p2.lon - p1.lon) * t;
   const curLat = p1.lat + (p2.lat - p1.lat) * t;
 
-  // Smooth Camera Follow
+  // Heading Calculation (Radians to Degrees)
+  const dy = p2.lat - p1.lat;
+  const dx = (p2.lon - p1.lon) * Math.cos((p1.lat * Math.PI) / 180);
+  const angle = Math.atan2(dy, dx);
+
+  simVehiclePos = { lat: curLat, lon: curLon, angle: angle };
+
+  // Smooth Camera Tracking (Dynamic LERP Follow)
   state.lon += (curLon - state.lon) * 0.08;
   state.lat += (curLat - state.lat) * 0.08;
 
-  simVehiclePos = { lat: curLat, lon: curLon, angle: Math.atan2(p2.lat - p1.lat, p2.lon - p1.lon) };
+  // Update Simulation HUD Readouts
+  const speedKmh = state.travelMode === 'driving' ? (40 + Math.sin(simProgress * 20) * 8).toFixed(0) : (state.travelMode === 'cycling' ? '18' : '5');
+  document.getElementById('sim-speed-val').textContent = `${speedKmh} km/h`;
+  const pct = Math.round(simProgress * 100);
+  document.getElementById('sim-progress-val').textContent = `${pct}%`;
+  document.getElementById('sim-progress-bar').style.width = `${pct}%`;
 }
 
-let simVehiclePos = null;
+/**
+ * STREAMING_CHUNK:Implementing Real-World User Geolocation Locator Engine...
+ * 8b. REAL-TIME BROWSER GEOLOCATION ENGINE (LAT/LON + ACCURACY)
+ */
+function acquireUserLocation(andRoute = false) {
+  if (!navigator.geolocation) {
+    showToast("⚠️ Geolocation not supported by your browser");
+    return;
+  }
+
+  showToast("📡 Contacting GPS Satellites...");
+  document.getElementById('stat-gps').textContent = "Acquiring...";
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+      const acc = Math.round(pos.coords.accuracy);
+
+      userGeoLocation = { lat, lon };
+      userAccuracyRadius = acc;
+
+      state.lat = lat;
+      state.lon = lon;
+      state.zoom = 16.5;
+
+      document.getElementById('stat-gps').textContent = `±${acc}m Accurate`;
+      showToast(`📍 GPS Acquired! (±${acc}m)`);
+
+      // Set user current location automatically as START pin
+      startCoord = { lat, lon };
+
+      if (andRoute && destCoord) {
+        computeRealWorldRoute();
+      }
+
+      fetchVectorsAndBuildings();
+    },
+    (err) => {
+      console.warn("Geolocation failed:", err);
+      showToast("⚠️ Unable to retrieve GPS location (Permission denied or timeout)");
+      document.getElementById('stat-gps').textContent = "Unavailable";
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+  );
+}
+
+function showToast(msg) {
+  const toast = document.getElementById('gps-toast');
+  toast.textContent = msg;
+  toast.style.display = 'block';
+  setTimeout(() => { toast.style.display = 'none'; }, 4000);
+}
 
 /**
  * STREAMING_CHUNK:Implementing 2.5D Isometric Composite Renderer...
@@ -998,7 +1174,6 @@ function coordToScreen(lat, lon, altitude = 0) {
 }
 
 function screenToCoord(sx, sy) {
-  // Inverse projection at ground level (altitude = 0)
   let adjSy = sy;
   if (state.pitch > 0) {
     const pitchRad = (state.pitch * Math.PI) / 180;
@@ -1093,7 +1268,13 @@ function render() {
     ctx.shadowBlur = 0;
   }
 
-  // 6. Render Start & Destination Flag Markers
+  // 6. Render Real-world User GPS Location Puck (with Accuracy Wave)
+  if (userGeoLocation) {
+    const up = coordToScreen(userGeoLocation.lat, userGeoLocation.lon);
+    drawUserLocationPuck(up.x, up.y);
+  }
+
+  // 7. Render Start & Destination Flag Markers
   if (startCoord) {
     const p = coordToScreen(startCoord.lat, startCoord.lon);
     drawMapPin(p.x, p.y, "#10b981", "START");
@@ -1103,11 +1284,13 @@ function render() {
     drawMapPin(p.x, p.y, "#f43f5e", "DESTINATION");
   }
 
-  // 7. Update and Draw Simulated Vehicle Beacon
-  if (simActive && simVehiclePos) {
+  // 8. Update and Draw Live Simulated GPS Vehicle Beacon
+  if (simActive) {
     updateSimulation();
-    const vp = coordToScreen(simVehiclePos.lat, simVehiclePos.lon);
-    drawSimVehicle(vp.x, vp.y, simVehiclePos.angle);
+    if (simVehiclePos) {
+      const vp = coordToScreen(simVehiclePos.lat, simVehiclePos.lon);
+      drawSimVehicle(vp.x, vp.y, simVehiclePos.angle);
+    }
   }
 
   requestAnimationFrame(render);
@@ -1179,26 +1362,66 @@ function drawMapPin(x, y, color, label) {
   ctx.fillText(label, x + 12, y + 4);
 }
 
+// Draw Pulsing User GPS Location Puck
+function drawUserLocationPuck(x, y) {
+  ctx.save();
+  // Outer Pulse Wave
+  const pulseR = 14 + Math.sin(Date.now() * 0.005) * 5;
+  ctx.fillStyle = "rgba(56, 189, 248, 0.25)";
+  ctx.beginPath();
+  ctx.arc(x, y, pulseR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Solid Cyan Center Ring
+  ctx.fillStyle = "#38bdf8";
+  ctx.beginPath();
+  ctx.arc(x, y, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  ctx.font = "bold 10.5px system-ui";
+  ctx.fillStyle = "#38bdf8";
+  ctx.fillText("YOU ARE HERE", x + 12, y - 6);
+  ctx.restore();
+}
+
+// Draw Animated GPS Navigation Vehicle
 function drawSimVehicle(x, y, angle) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
 
-  // Glowing cyber navigation arrow
-  ctx.shadowColor = "#38bdf8";
-  ctx.shadowBlur = 16;
-  ctx.fillStyle = "#38bdf8";
+  // Dynamic Radar Pulse Rings
+  const pulse = (Date.now() % 1000) / 1000;
+  ctx.strokeStyle = `rgba(56, 189, 248, ${1 - pulse})`;
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(12, 0);
-  ctx.lineTo(-8, -7);
+  ctx.arc(0, 0, 16 + pulse * 18, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Holographic Cyber Navigation Arrow
+  ctx.shadowColor = "#38bdf8";
+  ctx.shadowBlur = 18;
+  ctx.fillStyle = "#0284c7";
+  ctx.beginPath();
+  ctx.moveTo(16, 0);
+  ctx.lineTo(-10, -9);
   ctx.lineTo(-4, 0);
-  ctx.lineTo(-8, 7);
+  ctx.lineTo(-10, 9);
   ctx.closePath();
   ctx.fill();
 
+  // Arrow Border Highlight
+  ctx.strokeStyle = "#38bdf8";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Glowing Cockpit Core
   ctx.fillStyle = "#ffffff";
   ctx.beginPath();
-  ctx.arc(0, 0, 3, 0, Math.PI * 2);
+  ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
@@ -1281,7 +1504,9 @@ canvas.addEventListener('click', e => {
     exploredHeapFrontier = [];
     simActive = false;
     document.getElementById('btn-simulate').textContent = '▶ Start Sim';
+    document.getElementById('btn-simulate').classList.remove('active');
     document.getElementById('nav-hud').style.display = 'none';
+    document.getElementById('sim-hud').style.display = 'none';
     document.getElementById('elevation-hud').style.display = 'none';
   } else {
     destCoord = clickCoord;
@@ -1306,7 +1531,6 @@ searchInput.addEventListener('input', e => {
   // 1. Instant Prefix Trie Search
   const trieMatches = poiTrie.search(q);
   if (trieMatches.length > 0) {
-    // Sort Trie matches by distance to camera using Merge Sort
     const sortedTrie = mergeSort(trieMatches, item => Math.hypot(item.lon - state.lon, item.lat - state.lat));
     sortedTrie.slice(0, 4).forEach(item => {
       const li = document.createElement('li');
@@ -1365,7 +1589,10 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
   });
 });
 
-// Action Buttons
+/**
+ * STREAMING_CHUNK:Binding Event Listeners for UI and Simulation Controls...
+ * 12. ACTION BUTTONS & SIMULATION CONTROLLER
+ */
 document.getElementById('btn-tilt').onclick = (e) => {
   state.pitch = state.pitch === 0 ? 38 : 0;
   e.target.textContent = state.pitch > 0 ? "📐 3D Tilt: On (38°)" : "📐 3D Tilt: Off";
@@ -1378,12 +1605,30 @@ document.getElementById('btn-buildings').onclick = (e) => {
   e.target.classList.toggle('active', state.showBuildings);
 };
 
+// Start / Pause Live Vehicle Simulation
 document.getElementById('btn-simulate').onclick = (e) => {
-  if (!activeRoute) return;
+  if (!activeRoute || activeRoute.length < 2) {
+    showToast("⚠️ Please select a START and DESTINATION first!");
+    return;
+  }
   simActive = !simActive;
-  e.target.textContent = simActive ? "⏸ Pause Sim" : "▶ Start Sim";
+  e.target.textContent = simActive ? "⏸ Pause Sim" : "▶ Resume Sim";
   e.target.classList.toggle('active', simActive);
+  document.getElementById('sim-hud').style.display = simActive ? 'flex' : 'none';
 };
+
+// Reset / Stop Simulation
+document.getElementById('btn-sim-reset').onclick = () => {
+  simActive = false;
+  simProgress = 0;
+  document.getElementById('btn-simulate').textContent = "▶ Start Sim";
+  document.getElementById('btn-simulate').classList.remove('active');
+  document.getElementById('sim-hud').style.display = 'none';
+};
+
+// Geolocation Buttons
+document.getElementById('btn-my-loc').onclick = () => acquireUserLocation(false);
+document.getElementById('btn-my-loc-dock').onclick = () => acquireUserLocation(false);
 
 document.getElementById('btn-recenter').onclick = () => {
   if (startCoord) {
@@ -1398,8 +1643,11 @@ document.getElementById('btn-clear').onclick = () => {
   activeRoute = null;
   exploredHeapFrontier = [];
   simActive = false;
+  simProgress = 0;
   document.getElementById('btn-simulate').textContent = '▶ Start Sim';
+  document.getElementById('btn-simulate').classList.remove('active');
   document.getElementById('nav-hud').style.display = 'none';
+  document.getElementById('sim-hud').style.display = 'none';
   document.getElementById('elevation-hud').style.display = 'none';
   document.getElementById('building-inspect').style.display = 'none';
   document.getElementById('stat-route-dist').textContent = '0 km';
@@ -1414,5 +1662,4 @@ render();
 </html>
 """
 
-# Embed full-screen immersive application
 components.html(html_app, height=960, scrolling=False)
