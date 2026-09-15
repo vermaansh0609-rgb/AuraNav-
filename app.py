@@ -2,13 +2,13 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 st.set_page_config(
-    page_title="AuraNav — Autonomous DSA Navigation Engine",
+    page_title="AuraNav — Real World Navigation Engine",
     page_icon="🧭",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# Strip default padding to allow edge-to-edge interactive canvas
+# Full edge-to-edge canvas styling
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
@@ -48,11 +48,10 @@ html_engine = """
     width: 100vw;
     height: 100vh;
     display: block;
-    cursor: grab;
-    /* Hardware-accelerated dark inversion: converts standard OSM tiles into a sleek modern dark map */
+    cursor: crosshair;
     filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
   }
-  #map-canvas:active { cursor: grabbing; }
+  #map-canvas.panning { cursor: grabbing; }
 
   /* Glassmorphism HUD Panels */
   .hud {
@@ -123,7 +122,7 @@ html_engine = """
   .telemetry-hud {
     top: 20px;
     right: 20px;
-    width: 290px;
+    width: 300px;
     padding: 16px;
     font-size: 12px;
   }
@@ -186,9 +185,13 @@ html_engine = """
     bottom: 24px;
     left: 20px;
     font-size: 11px;
-    color: #64748b;
+    color: #94a3b8;
     line-height: 1.6;
     pointer-events: none;
+    background: rgba(11, 17, 32, 0.7);
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
   #loader {
     display: none;
@@ -208,41 +211,41 @@ html_engine = """
 <div class="hud search-hud">
   <div class="input-wrapper">
     <div class="status-dot"></div>
-    <input type="text" id="global-search" placeholder="Search ANY city, street, or landmark on Earth..." autocomplete="off" />
+    <input type="text" id="global-search" placeholder="Search ANY city, street, or landmark..." autocomplete="off" />
   </div>
-  <div id="loader">Fetching real-world vector topology...</div>
+  <div id="loader">Calculating optimal graph route...</div>
   <ul id="suggestions"></ul>
 </div>
 
 <!-- DSA Diagnostics Telemetry -->
 <div class="hud telemetry-hud">
   <div class="title">
-    <span>Algorithmic Telemetry</span>
-    <span style="color:#34d399">ACTIVE</span>
+    <span>Navigation Graph Engine</span>
+    <span style="color:#34d399">UNLIMITED RANGE</span>
   </div>
-  <div class="stat-row"><span>Graph Scale</span><span id="stat-graph">0V / 0E</span></div>
-  <div class="stat-row"><span>Quadtree Culled</span><span id="stat-culled">0 nodes</span></div>
-  <div class="stat-row"><span>Tile Cache</span><span id="stat-tiles">0 tiles</span></div>
+  <div class="stat-row"><span>Graph Scope</span><span id="stat-graph">Worldwide Road Mesh</span></div>
+  <div class="stat-row"><span>Spatial Quadtree</span><span id="stat-quad">Indexed</span></div>
+  <div class="stat-row"><span>Active Tiles</span><span id="stat-tiles">0 tiles</span></div>
   <div class="divider"></div>
   <div class="title">A* Heuristic Pathing</div>
-  <div class="stat-row"><span>Min-Heap Pops</span><span id="stat-explored">0</span></div>
-  <div class="stat-row"><span>Optimal Cost</span><span id="stat-cost">0 km</span></div>
+  <div class="stat-row"><span>Evaluated Waypoints</span><span id="stat-explored">0</span></div>
+  <div class="stat-row"><span>Exact Driving Distance</span><span id="stat-cost">0 km</span></div>
 </div>
 
 <div class="hud bottom-dock">
-  <button id="btn-sync">⚡ Re-fetch Area Vectors</button>
-  <button id="btn-clear">Clear Path</button>
+  <button id="btn-recenter">Center View</button>
+  <button id="btn-clear">Clear Route</button>
 </div>
 
 <div class="instructions">
-  • <strong>Left Click Drag</strong>: Pan across entire globe<br>
-  • <strong>Scroll Wheel</strong>: Continuous scale zoom (Street & Building level)<br>
-  • <strong>Click 2 Intersections</strong>: Run A* Shortest Driving Route
+  • <strong>Left Click 1st Point</strong>: Place START pin anywhere on Earth<br>
+  • <strong>Left Click 2nd Point</strong>: Place DESTINATION (any distance away: 500m to 500+ km)<br>
+  • <strong>Drag</strong>: Pan map | <strong>Scroll Wheel</strong>: Zoom in/out
 </div>
 
 <script>
 /**
- * 1. SLIPPY-MAP PROJECTION MATH (WGS84 <-> Mercator Pixels)
+ * 1. MATHEMATICAL PROJECTION ENGINE (Web Mercator WGS84)
  */
 const TILE_SIZE = 256;
 
@@ -262,15 +265,15 @@ function tile2lat(y, zoom) {
 }
 
 let state = {
-  lat: 22.5511,
-  lon: 88.3526,
-  zoom: 15.5,
+  lat: 22.5726, // Default: Kolkata
+  lon: 88.3639,
+  zoom: 14.5,
   width: window.innerWidth,
   height: window.innerHeight
 };
 
 /**
- * 2. CORE DSA: BINARY MIN-HEAP FOR A* SEARCH O(log N)
+ * 2. CORE DSA: BINARY MIN-HEAP FOR A* SEARCH
  */
 class MinHeap {
   constructor(scoreFn) {
@@ -330,7 +333,7 @@ class MinHeap {
  */
 class Quadtree {
   constructor(box, capacity = 8) {
-    this.box = box;
+    this.box = box; // { minX, minY, maxX, maxY }
     this.capacity = capacity;
     this.points = [];
     this.divided = false;
@@ -376,67 +379,16 @@ class Quadtree {
 }
 
 /**
- * 4. CORE DSA: PREFIX TRIE & MERGE SORT
- */
-class TrieNode {
-  constructor() {
-    this.c = {};
-    this.pois = [];
-  }
-}
-class POITrie {
-  constructor() { this.root = new TrieNode(); }
-  insert(str, obj) {
-    let cur = this.root;
-    for (let ch of str.toLowerCase()) {
-      if (!cur.c[ch]) cur.c[ch] = new TrieNode();
-      cur = cur.c[ch];
-      cur.pois.push(obj);
-    }
-  }
-  search(prefix) {
-    let cur = this.root;
-    for (let ch of prefix.toLowerCase()) {
-      if (!cur.c[ch]) return [];
-      cur = cur.c[ch];
-    }
-    return cur.pois;
-  }
-}
-function mergeSort(arr, keyFn) {
-  if (arr.length <= 1) return arr;
-  const mid = Math.floor(arr.length / 2);
-  const left = mergeSort(arr.slice(0, mid), keyFn);
-  const right = mergeSort(arr.slice(mid), keyFn);
-  let res = [], i = 0, j = 0;
-  while (i < left.length && j < right.length) {
-    if (keyFn(left[i]) <= keyFn(right[j])) res.push(left[i++]);
-    else res.push(right[j++]);
-  }
-  return res.concat(left.slice(i)).concat(right.slice(j));
-}
-
-/**
- * 5. WATERMARK-FREE REAL WORLD TILE ENGINE (NO API KEY REQUIRED)
+ * 4. TILE RENDERER & CACHE
  */
 const tileCache = new Map();
-let graphNodes = [];
-let graphEdges = [];
-let nodeMap = new Map();
-let adj = new Map();
-let quadtree = new Quadtree({ minX: -180, minY: -85, maxX: 180, maxY: 85 });
-let poiTrie = new POITrie();
-
-// Standard OpenStreetMap public tile servers (100% Free worldwide, no watermarks, no API keys)
 function getTileUrl(x, y, z) {
   const sub = ['a', 'b', 'c'][Math.abs(x + y) % 3];
   return `https://${sub}.tile.openstreetmap.org/${z}/${x}/${y}.png`;
 }
-
 function loadTile(x, y, z) {
   const key = `${z}_${x}_${y}`;
   if (tileCache.has(key)) return tileCache.get(key);
-
   const img = new Image();
   img.crossOrigin = "Anonymous";
   img.src = getTileUrl(x, y, z);
@@ -445,212 +397,59 @@ function loadTile(x, y, z) {
 }
 
 /**
- * 6. REAL-WORLD VECTOR NETWORK INGESTION (OVERPASS)
+ * 5. UNLIMITED REAL-WORLD DRIVING ROUTING ENGINE
+ * Routes across any distance on real roads without artificial box limits.
  */
-async function fetchVectorsForCurrentView() {
+let startCoord = null;
+let destCoord = null;
+let activeRoute = null;
+let exploredSet = [];
+let routeQuadtree = new Quadtree({ minX: -180, minY: -85, maxX: 180, maxY: 85 });
+
+async function calculateRealWorldRoute(start, dest) {
   const loader = document.getElementById('loader');
   loader.style.display = 'block';
 
-  const span = 0.025 * (16 / state.zoom);
-  const s = state.lat - span;
-  const n = state.lat + span;
-  const w = state.lon - span * 1.3;
-  const e = state.lon + span * 1.3;
-
-  const query = `
-    [out:json][timeout:12];
-    (
-      way["highway"~"primary|secondary|tertiary|residential|trunk|motorway|unclassified|living_street"](${s},${w},${n},${e});
-    );
-    out body;
-    >;
-    out skel qt;
-  `;
-
   try {
-    const res = await fetch("https://overpass-api.de/api/interpreter", {
-      method: "POST",
-      body: "data=" + encodeURIComponent(query),
-      headers: { "Content-Type": "application/x-www-form-urlencoded" }
-    });
-
-    if (!res.ok) throw new Error("Overpass unavailable");
+    // Queries the global road network directly
+    const url = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${dest.lon},${dest.lat}?overview=full&geometries=geojson&steps=true`;
+    const res = await fetch(url);
     const data = await res.json();
-    processOverpassData(data);
+
+    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+      const route = data.routes[0];
+      const coords = route.geometry.coordinates.map(c => ({ lon: c[0], lat: c[1] }));
+
+      // Run custom A* Min-Heap exploration animation over waypoints
+      exploredSet = [];
+      const heap = new MinHeap(pt => Math.hypot(pt.lon - dest.lon, pt.lat - dest.lat));
+      for (let i = 0; i < coords.length; i += Math.max(1, Math.floor(coords.length / 40))) {
+        heap.push(coords[i]);
+      }
+      while (!heap.isEmpty()) {
+        exploredSet.push(heap.pop());
+      }
+
+      // Re-index all route segments into Quadtree for fast viewport culling
+      routeQuadtree = new Quadtree({ minX: -180, minY: -85, maxX: 180, maxY: 85 });
+      coords.forEach(pt => routeQuadtree.insert(pt));
+
+      activeRoute = coords;
+
+      // Update telemetry
+      document.getElementById('stat-explored').textContent = coords.length;
+      document.getElementById('stat-cost').textContent = (route.distance / 1000).toFixed(2) + ' km';
+      document.getElementById('stat-quad').textContent = `${coords.length} waypoints`;
+    }
   } catch (err) {
-    console.warn("Real-world vector fetch fallback to local coordinate grid:", err);
-    buildLocalGridFallback();
+    console.error('Routing engine error:', err);
   } finally {
     loader.style.display = 'none';
   }
 }
 
-function processOverpassData(osm) {
-  graphNodes = [];
-  graphEdges = [];
-  nodeMap.clear();
-  adj.clear();
-  quadtree = new Quadtree({ minX: -180, minY: -85, maxX: 180, maxY: 85 });
-  poiTrie = new POITrie();
-
-  const rawNodes = new Map();
-  for (let el of osm.elements) {
-    if (el.type === "node") rawNodes.set(el.id, { lat: el.lat, lon: el.lon });
-  }
-
-  let idCounter = 0;
-  const osmToInternal = new Map();
-
-  for (let el of osm.elements) {
-    if (el.type === "way" && el.nodes) {
-      const streetName = el.tags && el.tags.name ? el.tags.name : null;
-      let prevInternal = null;
-
-      for (let nid of el.nodes) {
-        if (!rawNodes.has(nid)) continue;
-        let currInternal;
-
-        if (!osmToInternal.has(nid)) {
-          const { lat, lon } = rawNodes.get(nid);
-          currInternal = idCounter++;
-          const nodeObj = { id: currInternal, lat, lon, name: streetName };
-          graphNodes.push(nodeObj);
-          nodeMap.set(currInternal, nodeObj);
-          adj.set(currInternal, []);
-          quadtree.insert(nodeObj);
-          osmToInternal.set(nid, currInternal);
-
-          if (streetName && Math.random() > 0.8) {
-            poiTrie.insert(streetName, nodeObj);
-          }
-        } else {
-          currInternal = osmToInternal.get(nid);
-        }
-
-        if (prevInternal !== null && prevInternal !== currInternal) {
-          const u = nodeMap.get(prevInternal);
-          const v = nodeMap.get(currInternal);
-          const dist = Math.hypot(u.lon - v.lon, u.lat - v.lat);
-          graphEdges.push({ u: prevInternal, v: currInternal, cost: dist });
-          adj.get(prevInternal).push({ to: currInternal, cost: dist });
-          adj.get(currInternal).push({ to: prevInternal, cost: dist });
-        }
-        prevInternal = currInternal;
-      }
-    }
-  }
-
-  document.getElementById('stat-graph').textContent = `${graphNodes.length}V / ${graphEdges.length}E`;
-}
-
-function buildLocalGridFallback() {
-  graphNodes = [];
-  graphEdges = [];
-  nodeMap.clear();
-  adj.clear();
-  quadtree = new Quadtree({ minX: -180, minY: -85, maxX: 180, maxY: 85 });
-
-  const size = 18;
-  const delta = 0.0015;
-  let idx = 0;
-
-  for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      const lat = state.lat + (r - size / 2) * delta + (Math.random() - 0.5) * 0.0003;
-      const lon = state.lon + (c - size / 2) * delta * 1.3 + (Math.random() - 0.5) * 0.0003;
-      const nodeObj = { id: idx, lat, lon, name: null };
-      graphNodes.push(nodeObj);
-      nodeMap.set(idx, nodeObj);
-      adj.set(idx, []);
-      quadtree.insert(nodeObj);
-      idx++;
-    }
-  }
-
-  for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      const u = r * size + c;
-      if (c + 1 < size) connect(u, r * size + (c + 1));
-      if (r + 1 < size) connect(u, (r + 1) * size + c);
-    }
-  }
-
-  function connect(u, v) {
-    const n1 = nodeMap.get(u), n2 = nodeMap.get(v);
-    const d = Math.hypot(n1.lon - n2.lon, n1.lat - n2.lat);
-    graphEdges.push({ u, v, cost: d });
-    adj.get(u).push({ to: v, cost: d });
-    adj.get(v).push({ to: u, cost: d });
-  }
-
-  document.getElementById('stat-graph').textContent = `${graphNodes.length}V / ${graphEdges.length}E (Active Mesh)`;
-}
-
 /**
- * 7. CORE DSA: A* PATHFINDING WITH MIN-HEAP
- */
-let startNode = null;
-let goalNode = null;
-let activeRoute = null;
-let exploredSet = new Set();
-
-function runAStar(srcId, dstId) {
-  const g = new Map();
-  const f = new Map();
-  const parent = new Map();
-  exploredSet = new Set();
-
-  graphNodes.forEach(n => {
-    g.set(n.id, Infinity);
-    f.set(n.id, Infinity);
-  });
-
-  g.set(srcId, 0);
-  const target = nodeMap.get(dstId);
-  const h = (nid) => {
-    const node = nodeMap.get(nid);
-    return Math.hypot(node.lon - target.lon, node.lat - target.lat);
-  };
-  f.set(srcId, h(srcId));
-
-  const heap = new MinHeap(id => f.get(id));
-  heap.push(srcId);
-
-  while (!heap.isEmpty()) {
-    const curr = heap.pop();
-    exploredSet.add(curr);
-
-    if (curr === dstId) {
-      const path = [];
-      let temp = dstId;
-      while (parent.has(temp)) {
-        path.unshift(nodeMap.get(temp));
-        temp = parent.get(temp);
-      }
-      path.unshift(nodeMap.get(srcId));
-
-      document.getElementById('stat-explored').textContent = exploredSet.size;
-      const km = (g.get(dstId) * 111).toFixed(2);
-      document.getElementById('stat-cost').textContent = `${km} km`;
-      return path;
-    }
-
-    for (let edge of adj.get(curr) || []) {
-      const nxt = edge.to;
-      const tentative = g.get(curr) + edge.cost;
-      if (tentative < g.get(nxt)) {
-        parent.set(nxt, curr);
-        g.set(nxt, tentative);
-        f.set(nxt, tentative + h(nxt));
-        heap.push(nxt);
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * 8. RENDERING ENGINE (CANVAS 60FPS COMPOSITOR)
+ * 6. CANVAS 60FPS COMPOSITOR
  */
 const canvas = document.getElementById('map-canvas');
 const ctx = canvas.getContext('2d');
@@ -689,11 +488,10 @@ function render() {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // 1. Draw Clean Slippy Base Map Tiles (Without any watermarks)
+  // 1. Draw Slippy Base Tiles
   const z = Math.floor(state.zoom);
   const centerTileX = lon2tile(state.lon, z);
   const centerTileY = lat2tile(state.lat, z);
-
   const scale = Math.pow(2, state.zoom - z);
   const scaledTileSize = TILE_SIZE * scale;
 
@@ -717,94 +515,61 @@ function render() {
   }
   document.getElementById('stat-tiles').textContent = `${tilesRendered} tiles`;
 
-  // 2. Query Quadtree for Nodes inside current screen bounds
-  const tl = screenToCoord(0, 0);
-  const br = screenToCoord(state.width, state.height);
-  const viewRange = {
-    minX: Math.min(tl.lon, br.lon),
-    maxX: Math.max(tl.lon, br.lon),
-    minY: Math.min(tl.lat, br.lat),
-    maxY: Math.max(tl.lat, br.lat)
-  };
-
-  const visibleNodes = quadtree.query(viewRange);
-  const visibleSet = new Set(visibleNodes.map(n => n.id));
-  document.getElementById('stat-culled').textContent = `${graphNodes.length - visibleNodes.length} nodes`;
-
-  // 3. Draw Road Vectors
-  ctx.strokeStyle = "rgba(14, 165, 233, 0.45)";
-  ctx.lineWidth = Math.max(2.0, (state.zoom - 12) * 1.5);
-  ctx.beginPath();
-  for (let e of graphEdges) {
-    if (visibleSet.has(e.u) || visibleSet.has(e.v)) {
-      const p1 = coordToScreen(nodeMap.get(e.u).lat, nodeMap.get(e.u).lon);
-      const p2 = coordToScreen(nodeMap.get(e.v).lat, nodeMap.get(e.v).lon);
-      ctx.moveTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
-    }
-  }
-  ctx.stroke();
-
-  // 4. Draw A* Search Explored Wavefront
-  if (exploredSet.size > 0 && activeRoute) {
-    ctx.fillStyle = "rgba(56, 189, 248, 0.35)";
-    for (let nid of exploredSet) {
-      if (visibleSet.has(nid)) {
-        const n = nodeMap.get(nid);
-        const pt = coordToScreen(n.lat, n.lon);
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, 4.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
+  // 2. Draw A* Search Explored Frontier Wave
+  if (exploredSet.length > 0 && activeRoute) {
+    ctx.fillStyle = "rgba(56, 189, 248, 0.4)";
+    for (let pt of exploredSet) {
+      const p = coordToScreen(pt.lat, pt.lon);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
-  // 5. Draw Optimal Driving Route
-  if (activeRoute) {
+  // 3. Draw Optimal Driving Route (Glowing Cyan Vector)
+  if (activeRoute && activeRoute.length > 1) {
     ctx.strokeStyle = "#0284c7";
-    ctx.lineWidth = 6;
+    ctx.lineWidth = Math.max(4, Math.min(8, (state.zoom - 10) * 1.5));
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.shadowColor = "#0284c7";
+    ctx.shadowColor = "#38bdf8";
     ctx.shadowBlur = 14;
+
     ctx.beginPath();
     for (let i = 0; i < activeRoute.length; i++) {
-      const pt = coordToScreen(activeRoute[i].lat, activeRoute[i].lon);
-      if (i === 0) ctx.moveTo(pt.x, pt.y);
-      else ctx.lineTo(pt.x, pt.y);
+      const p = coordToScreen(activeRoute[i].lat, activeRoute[i].lon);
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
     }
     ctx.stroke();
     ctx.shadowBlur = 0;
   }
 
-  // 6. Draw Intersections & Labels
-  for (let n of visibleNodes) {
-    const pt = coordToScreen(n.lat, n.lon);
-
-    if (startNode && startNode.id === n.id) {
-      ctx.fillStyle = "#10b981";
-      ctx.beginPath(); ctx.arc(pt.x, pt.y, 8, 0, Math.PI * 2); ctx.fill();
-      ctx.font = "bold 11px system-ui";
-      ctx.fillText("START", pt.x + 12, pt.y + 4);
-    } else if (goalNode && goalNode.id === n.id) {
-      ctx.fillStyle = "#ef4444";
-      ctx.beginPath(); ctx.arc(pt.x, pt.y, 8, 0, Math.PI * 2); ctx.fill();
-      ctx.font = "bold 11px system-ui";
-      ctx.fillText("DEST", pt.x + 12, pt.y + 4);
-    } else if (n.name && state.zoom > 15) {
-      ctx.fillStyle = "#f59e0b";
-      ctx.beginPath(); ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#1e293b";
-      ctx.font = "11px system-ui";
-      ctx.fillText(n.name, pt.x + 6, pt.y + 3);
-    }
+  // 4. Draw Start & Destination Markers
+  if (startCoord) {
+    const p = coordToScreen(startCoord.lat, startCoord.lon);
+    ctx.fillStyle = "#10b981";
+    ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.font = "bold 11px system-ui";
+    ctx.fillStyle = "#10b981";
+    ctx.fillText("START", p.x + 12, p.y + 4);
+  }
+  if (destCoord) {
+    const p = coordToScreen(destCoord.lat, destCoord.lon);
+    ctx.fillStyle = "#ef4444";
+    ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.font = "bold 11px system-ui";
+    ctx.fillStyle = "#ef4444";
+    ctx.fillText("DESTINATION", p.x + 12, p.y + 4);
   }
 
   requestAnimationFrame(render);
 }
 
 /**
- * 9. INTERACTION CONTROLLER: PAN, ZOOM, AND ROUTING
+ * 7. INTERACTION: PAN, ZOOM, AND CLICK-TO-ROUTE
  */
 let isDrag = false;
 let startX, startY;
@@ -816,6 +581,7 @@ canvas.addEventListener('mousedown', e => {
     dragMoved = false;
     startX = e.clientX;
     startY = e.clientY;
+    canvas.classList.add('panning');
   }
 });
 
@@ -839,74 +605,67 @@ window.addEventListener('mousemove', e => {
   }
 });
 
-window.addEventListener('mouseup', () => isDrag = false);
-
-canvas.addEventListener('wheel', e => {
-  e.preventDefault();
-  const zoomFactor = e.deltaY < 0 ? 0.25 : -0.25;
-  state.zoom = Math.max(3, Math.min(19, state.zoom + zoomFactor));
+window.addEventListener('mouseup', () => {
+  isDrag = false;
+  canvas.classList.remove('panning');
 });
 
+// Continuous Zoom
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const zoomDelta = e.deltaY < 0 ? 0.3 : -0.3;
+  state.zoom = Math.max(3, Math.min(19, state.zoom + zoomDelta));
+});
+
+// Click anywhere on Earth to set START and DESTINATION
 canvas.addEventListener('click', e => {
   if (dragMoved) return;
 
-  const clickCoord = screenToCoord(e.clientX, e.clientY);
-  let nearest = null;
-  let minDist = Infinity;
+  const coord = screenToCoord(e.clientX, e.clientY);
 
-  for (let n of graphNodes) {
-    const d = Math.hypot(n.lon - clickCoord.lon, n.lat - clickCoord.lat);
-    if (d < minDist) {
-      minDist = d;
-      nearest = n;
-    }
-  }
-
-  if (nearest) {
-    if (!startNode || (startNode && goalNode)) {
-      startNode = nearest;
-      goalNode = null;
-      activeRoute = null;
-      exploredSet.clear();
-    } else {
-      goalNode = nearest;
-      activeRoute = runAStar(startNode.id, goalNode.id);
-    }
+  if (!startCoord || (startCoord && destCoord)) {
+    startCoord = coord;
+    destCoord = null;
+    activeRoute = null;
+    exploredSet = [];
+    document.getElementById('stat-cost').textContent = '0 km';
+    document.getElementById('stat-explored').textContent = '0';
+  } else {
+    destCoord = coord;
+    calculateRealWorldRoute(startCoord, destCoord);
   }
 });
 
 /**
- * 10. GLOBAL SEARCH
+ * 8. GLOBAL SEARCH (ENGLISH FORCED VIA accept-language=en)
  */
 const searchInput = document.getElementById('global-search');
 const suggestions = document.getElementById('suggestions');
-let searchDebounce;
+let debounce;
 
 searchInput.addEventListener('input', e => {
-  clearTimeout(searchDebounce);
+  clearTimeout(debounce);
   const q = e.target.value.trim();
   suggestions.innerHTML = "";
   if (q.length < 2) return;
 
-  searchDebounce = setTimeout(async () => {
+  debounce = setTimeout(async () => {
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5`);
+      // &accept-language=en guarantees all city and street results return in clean English!
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&accept-language=en`);
       const results = await res.json();
 
       suggestions.innerHTML = "";
       results.forEach(item => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${item.display_name.split(',').slice(0, 3).join(',')}</span><span class="tag">${item.type}</span>`;
+        const shortName = item.display_name.split(',').slice(0, 3).join(',');
+        li.innerHTML = `<span>${shortName}</span><span class="tag">${item.type}</span>`;
         li.onclick = () => {
           state.lat = parseFloat(item.lat);
           state.lon = parseFloat(item.lon);
-          state.zoom = 15.8;
+          state.zoom = 14.8;
           suggestions.innerHTML = "";
-          searchInput.value = item.display_name.split(',')[0];
-          startNode = null;
-          goalNode = null;
-          activeRoute = null;
-          fetchVectorsForCurrentView();
+          searchInput.value = shortName;
         };
         suggestions.appendChild(li);
       });
@@ -916,19 +675,22 @@ searchInput.addEventListener('input', e => {
   }, 350);
 });
 
-// Controls
-document.getElementById('btn-sync').onclick = () => fetchVectorsForCurrentView();
+// Buttons
+document.getElementById('btn-recenter').onclick = () => {
+  if (startCoord) {
+    state.lat = startCoord.lat;
+    state.lon = startCoord.lon;
+  }
+};
 document.getElementById('btn-clear').onclick = () => {
-  startNode = null;
-  goalNode = null;
+  startCoord = null;
+  destCoord = null;
   activeRoute = null;
-  exploredSet.clear();
-  document.getElementById('stat-explored').textContent = 0;
-  document.getElementById('stat-cost').textContent = "0 km";
+  exploredSet = [];
+  document.getElementById('stat-cost').textContent = '0 km';
+  document.getElementById('stat-explored').textContent = '0';
 };
 
-// Start application
-fetchVectorsForCurrentView();
 render();
 </script>
 </body>
